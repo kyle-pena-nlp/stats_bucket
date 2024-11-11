@@ -18,12 +18,12 @@ impl StatsBucket {
         }
     }
     
-    pub fn init_from_stats(mean : f32, minimum : f32, maximum : f32, moments : [f32;10]) -> Self {
+    pub fn init_from_stats(mean : f32, minimum : f32, maximum : f32, moments : &[f32;10]) -> Self {
         StatsBucket {
             mean,
             minimum,
             maximum,
-            moments
+            moments: moments.clone()
         }
     }
 
@@ -34,6 +34,18 @@ impl StatsBucket {
     pub fn sample_mean(&self) -> f32 {
         self.mean
     }
+
+    pub fn minimum(&self) -> f32 {
+        return self.minimum;
+    }
+
+    pub fn maximum(&self) -> f32 {
+        return self.maximum;
+    }
+
+    pub fn moments(&self) -> &[f32;10] {
+        return &self.moments;
+    }    
 
     pub fn sample_variance(&self) -> f32 {
         self.moments[2] / self.n()
@@ -60,26 +72,45 @@ impl StatsBucket {
     }
 
     pub fn initialize(&mut self, ys : &[f32]) {
-        let mut i = 0;
-        for y in ys {
+        self.update(ys);
+    }
+
+    pub fn update<'a, I>(&mut self, ys: I)
+    where
+        I: IntoIterator<Item = &'a f32>,
+    {
+        let mut i = self.moments[0] as usize;
+        for &y in ys {
             if i == 0 {
                 self.moments = {
                     let mut arr = [0.0f32; 10];
                     arr[0] = 1.0f32;
                     arr
                 };
-                self.mean = *y;
-                self.minimum = *y;
-                self.maximum = *y;
-            }
-            else {
-                let (new_mean, new_minimum, new_maximum) = StatsBucket::update_stats(&mut self.moments, self.mean, self.minimum, self.maximum, *y);
+                self.mean = y;
+                self.minimum = y;
+                self.maximum = y;
+            } else {
+                let (new_mean, new_minimum, new_maximum) =
+                    StatsBucket::update_stats(&mut self.moments, self.mean, self.minimum, self.maximum, y);
                 self.mean = new_mean;
                 self.minimum = new_minimum;
                 self.maximum = new_maximum;
             }
             i += 1;
         }
+    }
+
+    pub fn combine(&mut self, other : &StatsBucket) {
+        let (M1s,M2s,u1,u2) = (&self.moments, &other.moments, &self.mean, &other.mean);
+        let means = (self.mean, other.mean);
+        let mins = (self.minimum, other.minimum);
+        let maxes = (self.maximum, other.maximum);
+        let (new_moments, new_mean, new_min, new_max) = StatsBucket::combine_stats(M1s, M2s, means, mins, maxes);
+        self.moments.copy_from_slice(&new_moments);
+        self.mean = new_mean;
+        self.minimum = new_min;
+        self.maximum = new_max;
     }
 
     fn update_stats(moments : &mut [f32;10], mean : f32, minimum : f32, maximum : f32, y : f32) -> (f32,f32,f32) {
@@ -109,7 +140,7 @@ impl StatsBucket {
         return Σ; 
     }
 
-    fn combine_stats(M1s : &[f32;10], M2s : &[f32;10], means : (f32,f32), u2 : f32, mins : (f32,f32), maxes : (f32,f32)) -> ([f32;10], f32, f32, f32) {
+    fn combine_stats(M1s : &[f32;10], M2s : &[f32;10], means : (f32,f32), mins : (f32,f32), maxes : (f32,f32)) -> ([f32;10], f32, f32, f32) {
         
         let (u1,u2) = means;
         let (min1,min2) = mins;

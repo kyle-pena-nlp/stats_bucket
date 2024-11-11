@@ -46,3 +46,5 @@ client/keypair.txt
 *.profraw
 
 node_modules
+
+**/.crates
