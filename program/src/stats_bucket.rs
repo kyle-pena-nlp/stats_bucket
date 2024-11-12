@@ -8,7 +8,6 @@ pub struct StatsBucket {
 }
 
 impl StatsBucket {
-
     pub fn init_empty() -> Self {
         StatsBucket { 
             mean : 0f32, 
@@ -132,7 +131,6 @@ impl StatsBucket {
         let n1 = moments[0];
         let n2 = 1f32;
         let mut Σ = 0f32;
-        
         for k in 0..=p {
             Σ += (binomial(p,k) as f32) * ( moments[p-k] * (s21*(-n2/n)).powf(k as f32) );
         }
@@ -141,25 +139,19 @@ impl StatsBucket {
     }
 
     fn combine_stats(M1s : &[f32;10], M2s : &[f32;10], means : (f32,f32), mins : (f32,f32), maxes : (f32,f32)) -> ([f32;10], f32, f32, f32) {
-        
         let (u1,u2) = means;
         let (min1,min2) = mins;
         let (max1,max2) = maxes;
-
         let s21 = u2 - u1;
         let mut moments : [f32;10] = [0f32;10];
-
         for p in (0..=10).rev() {
             moments[p] = StatsBucket::calculate_combined_moment(p, M1s, M2s, s21)
         }
-
         let n1 = M1s[0];
         let n2 = M2s[0];
-
         let new_mean = StatsBucket::calculate_combined_mean((u1,u2),(n1,n2));
         let new_min = f32::min(min1,min2);
         let new_max = f32::max(max1,max2);
-
         return (moments, new_mean, new_min, new_max);
     }
 

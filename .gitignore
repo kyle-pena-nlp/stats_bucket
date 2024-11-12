@@ -18,6 +18,10 @@ src/bin/*.so
 # Keypair files
 **/*.json
 **/*.keypair
+js/node_modules
+
+!**/package.json
+!**/tsconfig.json
 
 # Ignore specific keypair file(s) if they are sensitive
 program/keypair.txt
@@ -48,3 +52,5 @@ client/keypair.txt
 node_modules
 
 **/.crates
+
+**/test-ledger

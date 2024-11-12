@@ -1,19 +1,29 @@
 mod stats_bucket;
-mod instructions;
+mod stats_bucket_instruction;
 mod stats_bucket_account;
 mod errors;
 
-use instructions::{
-    Instructions,
-    combine_params::CombineParams,
-    push_params::PushParams
+use stats_bucket_instruction::{
+    StatsBucketInstruction,
+    PushParams,
+    CombineParams
+};
+use errors::Errors::{
+    WrongBucketPDA,
+    WrongSourceBucketPDA,
+    WrongTargetBucketPDA,
+    SerializationError
 };
 
 use solana_program::{
     account_info::AccountInfo, 
     entrypoint, 
     entrypoint::ProgramResult,
-    pubkey::Pubkey
+    pubkey::Pubkey,
+    rent::Rent,
+    program::invoke_signed,
+    system_instruction,
+    sysvar::Sysvar
 };
 
 use borsh::{BorshDeserialize,BorshSerialize};
@@ -21,7 +31,7 @@ use stats_bucket::StatsBucket;
 use stats_bucket_account::StatsBucketAccount;
 
 // TODO: proper program ID from localnet deploy
-solana_program::declare_id!("MyProgram1111111111111111111111111111111112");
+solana_program::declare_id!("C7DVvsaSQ1k7XcUXoAh9gZyGs6Ki9Qg9zpriBbrcx6tm");
 
 // Program entry point
 entrypoint!(process_instruction);
@@ -31,12 +41,12 @@ pub fn process_instruction<'a>(program_id: &Pubkey,
     instruction_data: &[u8]) -> ProgramResult {
 
     // deserialize instructions
-    let data : Instructions = Instructions::try_from_slice(instruction_data)?;
+    let data : StatsBucketInstruction = StatsBucketInstruction::try_from_slice(instruction_data)?;
 
     // depending on the instruction type, push to a bucket or merge the source bucket to the target (init if needed)
     match data {
-        Instructions::Push(push_params) => do_push(&push_params, accounts).unwrap(),
-        Instructions::Combine(combine_params) => do_combine(&combine_params, accounts).unwrap()
+        StatsBucketInstruction::Push(push_params) => do_push(&push_params, accounts).unwrap(),
+        StatsBucketInstruction::Combine(combine_params) => do_combine(&combine_params, accounts).unwrap()
     }
 
     Ok(())
@@ -45,19 +55,36 @@ pub fn process_instruction<'a>(program_id: &Pubkey,
 fn do_push<'a>(params: &PushParams, accounts: &'a [AccountInfo<'a>]) -> ProgramResult {
 
     // deserialize accounts from instruction
-    let ctx = instructions::accounts::PushAccounts::context(accounts).unwrap();
+    let ctx = stats_bucket_instruction::accounts::PushAccounts::context(accounts).unwrap();
+
+    let bucket_account = ctx.accounts.bucket;
+    let payer_account = ctx.accounts.payer;
 
     // derive the PDA for the payer's bucket
-    let (bucket_pda, bump) = Pubkey::find_program_address(&[b"bucket", ctx.accounts.payer.key.as_ref(),  params.name.as_bytes()], &crate::ID);
+    let (bucket_pda, bump) = Pubkey::find_program_address(&[b"bucket", payer_account.key.as_ref(),  params.name.as_bytes()], &crate::ID);
 
     // make sure the PDA matches what was supplied by the client
-    let bucket = ctx.accounts.bucket;
-    if *bucket.key != bucket_pda {
-        return Err(errors::Errors::WrongBucketPDA.into())
+    if *bucket_account.key != bucket_pda {
+        return Err(WrongBucketPDA.into())
+    }
+
+    if bucket_account.data_is_empty() {
+        invoke_signed(&system_instruction::create_account(
+            payer_account.key,
+            bucket_account.key,
+            Rent::get()?.minimum_balance(StatsBucketAccount::get_size()),
+            StatsBucketAccount::get_size() as u64,
+            &crate::ID
+        ), 
+        &[
+            payer_account.clone(),
+            bucket_account.clone(),
+        ],
+        &[&[bucket_pda.as_ref(), &[bump]]])?;
     }
 
     // deserialize the bucket PDA
-    let data = &bucket.data.borrow();
+    let data = &bucket_account.data.borrow();
     let mut stats_bucket_account = StatsBucketAccount::try_from_slice(data).unwrap();
 
     // convert the account into a stats bucket object, and update the statistics with the data
@@ -67,20 +94,45 @@ fn do_push<'a>(params: &PushParams, accounts: &'a [AccountInfo<'a>]) -> ProgramR
     // write the results back to the account data
     stats_bucket_account.copy_from_stats_bucket(stats_bucket);
     let mut buffer = Vec::new();
-    stats_bucket_account.serialize(&mut buffer).map_err(|_| errors::Errors::SerializationError).unwrap();
-    bucket.data.borrow_mut().copy_from_slice(&buffer);
+    stats_bucket_account.serialize(&mut buffer).map_err(|_| SerializationError).unwrap();
+    bucket_account.data.borrow_mut().copy_from_slice(&buffer);
 
     Ok(())
 }
 
 fn do_combine<'a>(params : &CombineParams, accounts: &'a [AccountInfo<'a>]) -> ProgramResult {
-    let ctx = instructions::accounts::CombineAccounts::context(accounts).unwrap();
+    let ctx = stats_bucket_instruction::accounts::CombineAccounts::context(accounts).unwrap();
 
-    let (target_bucket_pda, bump) = Pubkey::find_program_address(&[b"bucket", ctx.accounts.payer.key.as_ref(), params.target_name.as_bytes()], &crate::ID);
+    let payer_account = ctx.accounts.payer;
+    let source_bucket_account = ctx.accounts.source_bucket;
+    let target_bucket_account = ctx.accounts.target_bucket;
 
-    if *ctx.accounts.target_bucket.key != target_bucket_pda {
-        return Err(errors::Errors::WrongTargetBucketPDA.into());
+    let (source_bucket_pda, _) = Pubkey::find_program_address(&[b"bucket", ctx.accounts.payer.key.as_ref(), params.source_name.as_bytes() ], &crate::ID);
+
+    if *source_bucket_account.key != source_bucket_pda {
+        return Err(WrongSourceBucketPDA.into());
     }
+
+    let (target_bucket_pda, target_bucket_bump) = Pubkey::find_program_address(&[b"bucket", ctx.accounts.payer.key.as_ref(), params.target_name.as_bytes()], &crate::ID);
+
+    if *target_bucket_account.key != target_bucket_pda {
+        return Err(WrongTargetBucketPDA.into());
+    }
+
+    if target_bucket_account.data_is_empty() {
+        invoke_signed(&system_instruction::create_account(
+            payer_account.key,
+            target_bucket_account.key,
+            Rent::get()?.minimum_balance(StatsBucketAccount::get_size()),
+            StatsBucketAccount::get_size() as u64,
+            &crate::ID
+        ), 
+        &[
+            payer_account.clone(),
+            target_bucket_account.clone(),
+        ],
+        &[&[target_bucket_pda.as_ref(), &[target_bucket_bump]]])?;
+    }    
 
     // deserialize account data
     let source_bucket_account = StatsBucketAccount::try_from_slice(&ctx.accounts.source_bucket.data.borrow()).unwrap();
@@ -96,7 +148,7 @@ fn do_combine<'a>(params : &CombineParams, accounts: &'a [AccountInfo<'a>]) -> P
     // deserialize and write back to target bucket
     target_bucket_account.copy_from_stats_bucket(target_bucket);
     let mut buffer = Vec::new();
-    target_bucket_account.serialize(&mut buffer).map_err(|_| errors::Errors::SerializationError).unwrap();
+    target_bucket_account.serialize(&mut buffer).map_err(|_| SerializationError).unwrap();
 
     Ok(())
 }
