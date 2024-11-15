@@ -1,6 +1,14 @@
 import json
 from argparse import ArgumentParser
 
+"""
+Annoyingly, the Shank IDL generator doesn't seem to recognize f32 as a built-in type,
+and emits IDL as if f32 were a custom type.
+This short Python program post-processes the IDL and rewrites occurrences of f32 
+so that it looks like an actual built-in primitive type.
+"""
+
+
 parser = ArgumentParser()
 parser.add_argument("--fp", type = str)
 args = parser.parse_args()

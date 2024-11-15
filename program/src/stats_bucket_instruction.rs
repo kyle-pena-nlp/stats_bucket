@@ -13,7 +13,7 @@ pub struct CombineParams {
 #[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
 pub struct PushParams {
     pub name : String,
-    pub ys : Vec<f32>
+    pub ys : Vec<i64>
 }
 
 

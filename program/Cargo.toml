@@ -13,6 +13,9 @@ shank = "0.4.2"
 num-derive = "0.4.2"
 num-traits = "^0.2"
 thiserror = "2.0.2"
+fixed = "1.28.0"
+cordic = "0.1.5"
+fixed-macro = "1.2.0"
 
 [lib]
 crate-type = ["cdylib", "lib"]

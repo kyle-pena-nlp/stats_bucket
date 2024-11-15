@@ -1,23 +1,25 @@
 use num_integer::binomial;
+use fixed::types::I32F32;
+use crate::fixed_point_stuff::{FixedPowI, ONE, THREE, ZERO};
 
 pub struct StatsBucket {
-    mean : f32,
-    minimum : f32,
-    maximum : f32,
-    moments : [f32;10]
+    mean : I32F32,
+    minimum : I32F32,
+    maximum : I32F32,
+    moments : [I32F32;10]
 }
 
 impl StatsBucket {
     pub fn init_empty() -> Self {
         StatsBucket { 
-            mean : 0f32, 
-            minimum : 0f32, 
-            maximum : 0f32, 
-            moments : [0f32;10] 
+            mean : ZERO,
+            minimum : ZERO,
+            maximum : ZERO, 
+            moments : [ZERO;10] 
         }
     }
     
-    pub fn init_from_stats(mean : f32, minimum : f32, maximum : f32, moments : &[f32;10]) -> Self {
+    pub fn init_from_stats(mean : I32F32, minimum : I32F32, maximum : I32F32, moments : &[I32F32;10]) -> Self {
         StatsBucket {
             mean,
             minimum,
@@ -26,64 +28,66 @@ impl StatsBucket {
         }
     }
 
-    pub fn n(&self) -> f32 {
+    pub fn n(&self) -> I32F32 {
         self.moments[0]
     }
 
-    pub fn sample_mean(&self) -> f32 {
+    pub fn sample_mean(&self) -> I32F32 {
         self.mean
     }
 
-    pub fn minimum(&self) -> f32 {
+    pub fn minimum(&self) -> I32F32 {
         return self.minimum;
     }
 
-    pub fn maximum(&self) -> f32 {
+    pub fn maximum(&self) -> I32F32 {
         return self.maximum;
     }
 
-    pub fn moments(&self) -> &[f32;10] {
+    pub fn moments(&self) -> &[I32F32;10] {
         return &self.moments;
     }    
 
-    pub fn sample_variance(&self) -> f32 {
+    pub fn sample_variance(&self) -> I32F32 {
         self.moments[2] / self.n()
     }
 
-    pub fn corrected_sample_variance(&self) -> f32 {
-        self.moments[2] / (self.n() - 1f32)
+    pub fn corrected_sample_variance(&self) -> I32F32 {
+        self.moments[2] / (self.n() - ONE)
     }
 
-    pub fn sample_stdev(&self) -> f32 {
+    pub fn sample_stdev(&self) -> I32F32 {
         self.sample_variance().sqrt()
     }
 
-    pub fn corrected_sample_stdev(&self) -> f32 {
+    pub fn corrected_sample_stdev(&self) -> I32F32 {
         self.corrected_sample_variance().sqrt()
     }
 
-    pub fn sample_skewness(&self) -> f32 {
-        return (self.moments[3] / self.n()) / (self.moments[2]/self.n()).powf(1.5f32)
+    pub fn sample_skewness(&self) -> I32F32 {
+        let denom = self.moments[2]/self.n();
+        let denom_exp_1_5 = (denom * denom * denom).sqrt();
+        return (self.moments[3] / self.n()) / denom_exp_1_5;
     }
 
-    pub fn sample_excess_kurtosis(&self) -> f32 {
-        return (self.moments[4]/self.n()) / (self.moments[2]/self.n()).powf(2f32) - 3f32
+    pub fn sample_excess_kurtosis(&self) -> I32F32 {
+        return (self.moments[4]/self.n()) / (self.moments[2]/self.n()).powi_positive(2) - THREE
     }
 
-    pub fn initialize(&mut self, ys : &[f32]) {
+    pub fn initialize(&mut self, ys : &[I32F32]) {
         self.update(ys);
     }
 
     pub fn update<'a, I>(&mut self, ys: I)
     where
-        I: IntoIterator<Item = &'a f32>,
+        I: IntoIterator<Item = &'a I32F32>,
     {
-        let mut i = self.moments[0] as usize;
+        let mut i = self.moments[0].to_num::<i32>();
         for &y in ys {
             if i == 0 {
                 self.moments = {
-                    let mut arr = [0.0f32; 10];
-                    arr[0] = 1.0f32;
+                    let mut arr = [ZERO; 10];
+                    arr[0] = ONE;
                     arr
                 };
                 self.mean = y;
@@ -112,59 +116,59 @@ impl StatsBucket {
         self.maximum = new_max;
     }
 
-    fn update_stats(moments : &mut [f32;10], mean : f32, minimum : f32, maximum : f32, y : f32) -> (f32,f32,f32) {
+    fn update_stats(moments : &mut [I32F32;10], mean : I32F32, minimum : I32F32, maximum : I32F32, y : I32F32) -> (I32F32,I32F32,I32F32) {
         for p in (0..=10).rev() {
             moments[p] = StatsBucket::calculate_updated_moment(p,moments,mean,y)
         }
 
         let new_n = moments[0];
         let new_mean = mean + (y-mean) / new_n;
-        let new_min = f32::min(minimum,y);
-        let new_max = f32::max(maximum,y);
+        let new_min = I32F32::min(minimum,y);
+        let new_max = I32F32::max(maximum,y);
 
         return (new_mean, new_min, new_max);
     }
 
-    fn calculate_updated_moment(p : usize, moments: &[f32], mean : f32, y : f32) -> f32 {
+    fn calculate_updated_moment(p : usize, moments: &[I32F32], mean : I32F32, y : I32F32) -> I32F32 {
         let s21 = y - mean;
-        let n = moments[0] + 1f32;
+        let n = moments[0] + ONE;
         let n1 = moments[0];
-        let n2 = 1f32;
-        let mut Σ = 0f32;
+        let n2 = ONE;
+        let mut Σ = ZERO;
         for k in 0..=p {
-            Σ += (binomial(p,k) as f32) * ( moments[p-k] * (s21*(-n2/n)).powf(k as f32) );
+            Σ += I32F32::from_num(binomial(p,k) as i64) * ( moments[p-k] * (s21*(-n2/n)).powi_positive(k as u32) );
         }
-        Σ += (s21*n1/n).powf(p as f32);
+        Σ += (s21*n1/n).powi_positive(p as u32);
         return Σ; 
     }
 
-    fn combine_stats(M1s : &[f32;10], M2s : &[f32;10], means : (f32,f32), mins : (f32,f32), maxes : (f32,f32)) -> ([f32;10], f32, f32, f32) {
+    fn combine_stats(M1s : &[I32F32;10], M2s : &[I32F32;10], means : (I32F32,I32F32), mins : (I32F32,I32F32), maxes : (I32F32,I32F32)) -> ([I32F32;10], I32F32, I32F32, I32F32) {
         let (u1,u2) = means;
         let (min1,min2) = mins;
         let (max1,max2) = maxes;
         let s21 = u2 - u1;
-        let mut moments : [f32;10] = [0f32;10];
+        let mut moments : [I32F32;10] = [ZERO;10];
         for p in (0..=10).rev() {
             moments[p] = StatsBucket::calculate_combined_moment(p, M1s, M2s, s21)
         }
         let n1 = M1s[0];
         let n2 = M2s[0];
         let new_mean = StatsBucket::calculate_combined_mean((u1,u2),(n1,n2));
-        let new_min = f32::min(min1,min2);
-        let new_max = f32::max(max1,max2);
+        let new_min = I32F32::min(min1,min2);
+        let new_max = I32F32::max(max1,max2);
         return (moments, new_mean, new_min, new_max);
     }
 
-    fn calculate_combined_moment(p : usize, M1s : &[f32;10], M2s: &[f32;10], s21 : f32) -> f32 {
+    fn calculate_combined_moment(p : usize, M1s : &[I32F32;10], M2s: &[I32F32;10], s21 : I32F32) -> I32F32 {
         let (n,n1,n2) = (M1s[0] + M2s[0], M1s[0], M2s[0]);
-        let mut Σ = 0.0f32;
+        let mut Σ = ZERO;
         for k in 0..=p {
-            Σ += (binomial(p,k) as f32) * ((M1s[p-k] * (s21*(-n2/n)).powf(k as f32) ) + (M2s[p-k] * (s21*n1/n).powf(k as f32) ))
+            Σ += I32F32::from_num(binomial(p,k)) * ((M1s[p-k] * (s21*(-n2/n)).powi_positive(k as u32) ) + (M2s[p-k] * (s21*n1/n).powi_positive(k as u32)) )
         }
         return Σ;
     }
 
-    fn calculate_combined_mean(means : (f32,f32), ns : (f32,f32)) -> f32 {
+    fn calculate_combined_mean(means : (I32F32,I32F32), ns : (I32F32,I32F32)) -> I32F32 {
         let (u1,u2) = means;
         let (n1,n2) = ns;
         let n = n1 + n2;

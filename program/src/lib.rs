@@ -2,7 +2,9 @@ mod stats_bucket;
 mod stats_bucket_instruction;
 mod stats_bucket_account;
 mod errors;
+mod fixed_point_stuff;
 
+use fixed_point_stuff::vec_i64_to_vec_fixed_point;
 use stats_bucket_instruction::{
     StatsBucketInstruction,
     PushParams,
@@ -29,6 +31,7 @@ use solana_program::{
 use borsh::{BorshDeserialize,BorshSerialize};
 use stats_bucket::StatsBucket;
 use stats_bucket_account::StatsBucketAccount;
+use crate::fixed_point_stuff::into_fixed_point_array;
 
 // TODO: proper program ID from localnet deploy
 solana_program::declare_id!("C7DVvsaSQ1k7XcUXoAh9gZyGs6Ki9Qg9zpriBbrcx6tm");
@@ -89,7 +92,7 @@ fn do_push<'a>(params: &PushParams, accounts: &'a [AccountInfo<'a>]) -> ProgramR
 
     // convert the account into a stats bucket object, and update the statistics with the data
     let mut stats_bucket : StatsBucket = stats_bucket_account.as_stats_bucket();
-    stats_bucket.update(&params.ys);
+    stats_bucket.update(&vec_i64_to_vec_fixed_point(&params.ys));
 
     // write the results back to the account data
     stats_bucket_account.copy_from_stats_bucket(stats_bucket);
